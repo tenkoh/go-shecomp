@@ -1,0 +1,84 @@
+// Package shecomp provides packages and cli
+// which implements Compression function defined by
+// AUTOSAR Secure Hardware Extensions (SHE).
+package shecomp
+
+import (
+	"encoding/hex"
+	"errors"
+	"io"
+)
+
+const (
+	blockSize    = 16 // 128 bits
+	maxBitLength = 1<<40 - 1
+)
+
+// ErrLargePlainText is returned when the length of the input text is greater than 1<<40 - 1.
+var ErrLargePlainText = errors.New("shecomp: the length of the input text is too large")
+
+// PlainText is a struct which split a huge message into blocks with constant size.
+// The remained has zero or more bytes less than the block size.
+type PlainText struct {
+	Blocks [][]byte
+	Remain []byte // remaining piece after splitting whole message into some blocks
+}
+
+// bitLength returns the length of the PlainText in bits.
+// The returned value's type is uint64 which is enough to store the length of the PlainText
+// which is defined by the AUTOSAR SHE protocol.
+func (pt *PlainText) bitLength() uint64 {
+	var sum uint64
+	sum += uint64(16 * len(pt.Blocks))
+	sum += uint64(len(pt.Remain))
+	sum *= 8
+	return sum
+}
+
+func newPlainText() *PlainText {
+	return &PlainText{
+		Blocks: make([][]byte, 0),
+		Remain: make([]byte, 0),
+	}
+}
+
+// DecodeHexStream reads and splits a hex stream from r, deocode each blocks into []byte
+// and then returns a PlainText.
+func DecodeHexStream(r io.Reader) (*PlainText, error) {
+	pt := newPlainText()
+	for {
+		b := make([]byte, blockSize*2)
+		n, err := r.Read(b)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, err
+		}
+		b = b[:n]
+		h := make([]byte, n/2)
+
+		if _, err := hex.Decode(h, b); err != nil {
+			return nil, err
+		}
+		if n == blockSize*2 {
+			pt.Blocks = append(pt.Blocks, h)
+		} else {
+			pt.Remain = h
+		}
+	}
+	if pt.bitLength() > maxBitLength {
+		return nil, ErrLargePlainText
+	}
+	return pt, nil
+}
+
+// Padding calculate padding bytes. This function does not modify the original PlainText.
+func Padding(pt *PlainText) []byte {
+	return nil
+}
+
+// Compress calculate a secure hash value of a PlainText using AES Miyaguchi-Preneel mode.
+func Compress(pt *PlainText) ([]byte, error) {
+	return nil, nil
+}
