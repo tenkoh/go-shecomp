@@ -2,6 +2,7 @@ package shecomp_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"reflect"
 	"strings"
 	"testing"
@@ -74,7 +75,39 @@ func TestDecodeHexStream(t *testing.T) {
 }
 
 func TestPadding(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []byte
+	}{
+		{"empty input", "", hexMustDecode(t, "8"+strings.Repeat("0", 31))},
+		{"input's length is multiple of 128bit", strings.Repeat("88", 32), hexMustDecode(t, "8"+strings.Repeat("0", 28)+"100")},
+		{"the zero part of padding is the shortest", strings.Repeat("88", 26), hexMustDecode(t, "8"+strings.Repeat("0", 9)+"D0")},
+	}
 
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pt, err := shecomp.DecodeHexStream(strings.NewReader(tt.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := shecomp.Padding(pt)
+			if !reflect.DeepEqual(tt.want, got) {
+				t.Errorf("Padding() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func hexMustDecode(t *testing.T, s string) []byte {
+	t.Helper()
+	h, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 func TestCompress(t *testing.T) {

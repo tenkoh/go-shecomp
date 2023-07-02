@@ -75,7 +75,24 @@ func DecodeHexStream(r io.Reader) (*PlainText, error) {
 
 // Padding calculate padding bytes. This function does not modify the original PlainText.
 func Padding(pt *PlainText) []byte {
-	return nil
+	r := pt.Remain
+	remainBits := 8 * len(r)
+	padMinBits := remainBits + 1 + 40 // defined on the SHE protocol
+	padBytes := (padMinBits/128+1)*128/8 - len(r)
+	pad := make([]byte, padBytes)
+
+	// the lower 40bits = 5bytes shows the plain text's bit length in uint expression
+	ptBitLength := pt.bitLength()
+	for i := 0; i < 5; i++ {
+		pos := len(pad) - 1 - i
+		d := uint8(0xff & (ptBitLength >> (8 * i)))
+		pad[pos] = d
+	}
+
+	// the head bit is 1.
+	pad[0] = 0x80 | pad[0]
+
+	return pad
 }
 
 // Compress calculate a secure hash value of a PlainText using AES Miyaguchi-Preneel mode.
