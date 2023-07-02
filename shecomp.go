@@ -4,8 +4,10 @@
 package shecomp
 
 import (
+	"crypto/aes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -97,5 +99,30 @@ func Padding(pt *PlainText) []byte {
 
 // Compress calculate a secure hash value of a PlainText using AES Miyaguchi-Preneel mode.
 func Compress(pt *PlainText) ([]byte, error) {
-	return nil, nil
+	pad := Padding(pt)
+	padded := append(pt.Remain, pad...)
+	src := append(pt.Blocks, padded)
+	out := make([]byte, blockSize)
+	encrypted := make([]byte, blockSize)
+	for i := 0; i < len(src); i++ {
+		cipher, err := aes.NewCipher(out)
+		if err != nil {
+			return nil, fmt.Errorf("shecomp: failed to create cipher of block = %d: %w", i, err)
+		}
+		cipher.Encrypt(encrypted, src[i])
+		encrypted, _ = xor(encrypted, src[i])
+		out, _ = xor(out, encrypted)
+	}
+	return out, nil
+}
+
+func xor(a, b []byte) ([]byte, error) {
+	if len(a) != len(b) {
+		return nil, fmt.Errorf("shecomp: failed to xor: len(a) = %d, len(b) = %d", len(a), len(b))
+	}
+	r := make([]byte, len(a))
+	for i := 0; i < len(a); i++ {
+		r[i] = a[i] ^ b[i]
+	}
+	return r, nil
 }
