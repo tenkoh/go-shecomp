@@ -19,100 +19,99 @@ const (
 // ErrLargePlainText is returned when the length of the input text is greater than 1<<40 - 1.
 var ErrLargePlainText = errors.New("shecomp: the length of the input text is too large")
 
-// PlainText is a struct which split a huge message into blocks with constant size.
-// The remained has zero or more bytes less than the block size.
-type PlainText struct {
-	Blocks [][]byte
-	Remain []byte // remaining piece after splitting whole message into some blocks
+type hexVerifiedDecoder struct {
+	r         io.Reader
+	blockSize int
 }
 
-// bitLength returns the length of the PlainText in bits.
-// The returned value's type is uint64 which is enough to store the length of the PlainText
-// which is defined by the AUTOSAR SHE protocol.
-func (pt *PlainText) bitLength() uint64 {
-	var sum uint64
-	sum += uint64(16 * len(pt.Blocks))
-	sum += uint64(len(pt.Remain))
-	sum *= 8
-	return sum
+func newHexVerifiedDecoder(r io.Reader, blockSize int) *hexVerifiedDecoder {
+	return &hexVerifiedDecoder{r, blockSize}
 }
 
-func newPlainText() *PlainText {
-	return &PlainText{
-		Blocks: make([][]byte, 0),
-		Remain: make([]byte, 0),
+// *hexVerifiedDecoder.Read is different from hex.Decoder.Read
+// at the point of returning a decode error immediately. ex)ErrLength.
+func (d *hexVerifiedDecoder) read(dst []byte) (int, error) {
+	h := make([]byte, hex.EncodedLen(len(dst)))
+	n, err := d.r.Read(h)
+	if err != nil {
+		return 0, err
 	}
+	h = h[:n]
+	return hex.Decode(dst, h)
 }
 
-// DecodeHexStream reads and splits a hex stream from r, deocode each blocks into []byte
-// and then returns a PlainText.
-func DecodeHexStream(r io.Reader) (*PlainText, error) {
-	pt := newPlainText()
-	for {
-		b := make([]byte, blockSize*2)
-		n, err := r.Read(b)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, err
-		}
-		b = b[:n]
-		h := make([]byte, n/2)
-
-		if _, err := hex.Decode(h, b); err != nil {
-			return nil, err
-		}
-		if n == blockSize*2 {
-			pt.Blocks = append(pt.Blocks, h)
-		} else {
-			pt.Remain = h
-		}
-	}
-	if pt.bitLength() > maxBitLength {
-		return nil, ErrLargePlainText
-	}
-	return pt, nil
-}
-
-// Padding calculate padding bytes. This function does not modify the original PlainText.
-func Padding(pt *PlainText) []byte {
-	r := pt.Remain
-	remainBits := 8 * len(r)
-	padMinBits := remainBits + 1 + 40 // defined on the SHE protocol
-	padBytes := (padMinBits/128+1)*128/8 - len(r)
-	pad := make([]byte, padBytes)
-
-	// the lower 40bits = 5bytes shows the plain text's bit length in uint expression
-	ptBitLength := pt.bitLength()
-	for i := 0; i < 5; i++ {
-		pos := len(pad) - 1 - i
-		d := uint8(0xff & (ptBitLength >> (8 * i)))
-		pad[pos] = d
-	}
-
-	// the head bit is 1.
-	pad[0] = 0x80 | pad[0]
-
-	return pad
-}
-
-// Compress calculate a secure hash value of a PlainText using AES Miyaguchi-Preneel mode.
-func Compress(pt *PlainText) ([]byte, error) {
-	pad := Padding(pt)
-	padded := append(pt.Remain, pad...)
-	src := append(pt.Blocks, padded)
+// compress compresses the input data using AES Miyaguchi-Preenel mode.
+// This function returns both the compressed data and the padding bytes.
+// The input data must be hexdecimal encoded.
+func compress(r io.Reader) (compressed, pad []byte, _ error) {
+	d := newHexVerifiedDecoder(r, blockSize)
+	src := make([]byte, blockSize)
 	out := make([]byte, blockSize)
-	encrypted := make([]byte, blockSize)
-	for i := 0; i < len(src); i++ {
-		cipher, err := aes.NewCipher(out)
+
+	var srcByteLen uint64
+	for {
+		n, err := d.read(src)
 		if err != nil {
-			return nil, fmt.Errorf("shecomp: failed to create cipher of block = %d: %w", i, err)
+			if !errors.Is(err, io.EOF) {
+				return nil, nil, fmt.Errorf("shecomp: failed to read input stream: %w", err)
+			}
 		}
-		cipher.Encrypt(encrypted, src[i])
-		encrypted, _ = xor(encrypted, src[i])
-		out, _ = xor(out, encrypted)
+		srcByteLen += uint64(n)
+		src = src[:n]
+		if n < blockSize || errors.Is(err, io.EOF) {
+			break
+		}
+		o, err := encrypt(src, out)
+		if err != nil {
+			return nil, nil, fmt.Errorf("shecomp: failed to encrypt: %w", err)
+		}
+		out = o
 	}
+	if srcByteLen*8 > maxBitLength {
+		return nil, nil, ErrLargePlainText
+	}
+	pad = padding(src, srcByteLen)
+	out, err := encrypt(append(src, pad...), out)
+	if err != nil {
+		return nil, nil, fmt.Errorf("shecomp: failed to encrypt the last block with padding: %w", err)
+	}
+	return out, pad, nil
+}
+
+// Compress compresses the input data using AES Miyaguchi-Preenel mode.
+// The input data must be hexdecimal encoded.
+// If the length of the input text is greater than 1<<40 - 1 in bit, it returns ErrLargePlainText.
+func Compress(r io.Reader) ([]byte, error) {
+	c, _, err := compress(r)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// Padding calculate the padding bytes.
+// This function does not modify the input, just returns the padding bytes.
+// The input data must be hexdecimal encoded.
+func Padding(r io.Reader) ([]byte, error) {
+	_, pad, err := compress(r)
+	if err != nil {
+		return nil, err
+	}
+	return pad, nil
+}
+
+func encrypt(src, previous []byte) ([]byte, error) {
+	if len(src) != blockSize || len(previous) != blockSize {
+		return nil, fmt.Errorf("shecomp: failed to encrypt. the length of each input must be same as blockSize=%d, but len(src) = %d, len(previous) = %d", blockSize, len(src), len(previous))
+	}
+	cipher, err := aes.NewCipher(previous)
+	if err != nil {
+		return nil, fmt.Errorf("shecomp: failed to create cipher: %w", err)
+	}
+	encrypted := make([]byte, blockSize)
+	cipher.Encrypt(encrypted, src)
+	encrypted, _ = xor(encrypted, src)
+	out, _ := xor(previous, encrypted)
 	return out, nil
 }
 
@@ -125,4 +124,20 @@ func xor(a, b []byte) ([]byte, error) {
 		r[i] = a[i] ^ b[i]
 	}
 	return r, nil
+}
+
+func padding(b []byte, messageByteLen uint64) []byte {
+	padMinBitLen := 8*len(b) + 1 + 40
+	padByteLen := (padMinBitLen/128+1)*128/8 - len(b)
+	pad := make([]byte, padByteLen)
+
+	// the last 40 bits of the padding shows the length of the message in bits
+	for i := 0; i < 5; i++ {
+		pos := len(pad) - 1 - i
+		d := uint8(0xff & ((messageByteLen * 8) >> (8 * i)))
+		pad[pos] = d
+	}
+	// the first bit of the padding must be 1
+	pad[0] = 0x80 | pad[0]
+	return pad
 }
