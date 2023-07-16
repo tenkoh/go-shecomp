@@ -1,7 +1,6 @@
 package shecomp_test
 
 import (
-	"encoding/hex"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,25 +18,25 @@ func TestPadding(t *testing.T) {
 		{
 			"empty input",
 			"",
-			hexMustDecode(t, "8"+strings.Repeat("0", 31)),
+			[]byte("8" + strings.Repeat("0", 31)),
 			false,
 		},
 		{
 			"input's length is multiple of 128bit",
 			strings.Repeat("88", 32),
-			hexMustDecode(t, "8"+strings.Repeat("0", 28)+"100"),
+			[]byte("8" + strings.Repeat("0", 28) + "100"),
 			false,
 		},
 		{
 			"the zero part of padding is the shortest",
 			strings.Repeat("88", 26),
-			hexMustDecode(t, "8"+strings.Repeat("0", 9)+"D0"),
+			[]byte("8" + strings.Repeat("0", 9) + "d0"),
 			false,
 		},
 		{
 			"example on SHE specification",
 			"6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51",
-			hexMustDecode(t, "8"+strings.Repeat("0", 28)+"100"),
+			[]byte("8" + strings.Repeat("0", 28) + "100"),
 			false,
 		},
 		{
@@ -66,15 +65,6 @@ func TestPadding(t *testing.T) {
 	}
 }
 
-func hexMustDecode(t *testing.T, s string) []byte {
-	t.Helper()
-	h, err := hex.DecodeString(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return h
-}
-
 func TestCompress(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -85,7 +75,7 @@ func TestCompress(t *testing.T) {
 		{
 			"example described in SHE specification",
 			"6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51",
-			hexMustDecode(t, "c7277a0dc1fb853b5f4d9cbd26be40c6"),
+			[]byte("c7277a0dc1fb853b5f4d9cbd26be40c6"),
 			false,
 		},
 	}

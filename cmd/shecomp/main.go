@@ -2,8 +2,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -26,17 +24,7 @@ func compress(w io.Writer, r io.Reader, fn func(r io.Reader) ([]byte, error)) er
 		return err
 	}
 
-	var b bytes.Buffer
-	enc := hex.NewEncoder(&b)
-	n, err := enc.Write(o)
-	if err != nil {
-		return err
-	}
-	if n != len(o) {
-		return errors.New("failed to hexadecimal encode")
-	}
-
-	fmt.Fprint(w, b.String())
+	fmt.Fprint(w, string(o))
 	return nil
 }
 

@@ -79,6 +79,7 @@ func compress(r io.Reader) (compressed, pad []byte, _ error) {
 }
 
 // Compress compresses the input data using AES Miyaguchi-Preenel mode.
+// The output is encoded in hexdecimal.
 // The input data must be hexdecimal encoded.
 // If the length of the input text is greater than 1<<40 - 1 in bit, it returns ErrLargePlainText.
 func Compress(r io.Reader) ([]byte, error) {
@@ -86,18 +87,24 @@ func Compress(r io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c, nil
+	h := make([]byte, hex.EncodedLen(len(c)))
+	hex.Encode(h, c)
+	return h, nil
 }
 
 // Padding calculate the padding bytes.
+// The output is encoded in hexdecimal.
 // This function does not modify the input, just returns the padding bytes.
 // The input data must be hexdecimal encoded.
+// If the length of the input text is greater than 1<<40 - 1 in bit, it returns ErrLargePlainText.
 func Padding(r io.Reader) ([]byte, error) {
 	_, pad, err := compress(r)
 	if err != nil {
 		return nil, err
 	}
-	return pad, nil
+	h := make([]byte, hex.EncodedLen(len(pad)))
+	hex.Encode(h, pad)
+	return h, nil
 }
 
 func encrypt(src, previous []byte) ([]byte, error) {
