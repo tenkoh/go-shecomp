@@ -40,7 +40,7 @@ func TestPadding(t *testing.T) {
 			false,
 		},
 		{
-			"invalid hexdecimal input",
+			"invalid hexadecimal input",
 			"012",
 			nil,
 			true,
@@ -48,9 +48,7 @@ func TestPadding(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			// t.Parallel()
 			got, err := shecomp.Padding(strings.NewReader(tt.input))
 			if err != nil {
 				if !tt.wantError {
@@ -81,9 +79,7 @@ func TestCompress(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			got, err := shecomp.Compress(strings.NewReader(tt.input))
 			if err != nil {
 				if !tt.wantErr {

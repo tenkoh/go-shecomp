@@ -29,7 +29,7 @@ func compress(w io.Writer, r io.Reader, fn func(r io.Reader) ([]byte, error)) er
 }
 
 func run(c *cli.Context) error {
-	// swtich the input source
+	// switch the input source
 	// if both the input file and the hexadecimal encoded string are specified, return error.
 	if c.String("input") != "" && len(c.Args().Slice()) > 0 {
 		return errors.New("both the input file and the hexadecimal encoded string are specified")

@@ -42,7 +42,7 @@ func (d *hexVerifiedDecoder) read(dst []byte) (int, error) {
 
 // compress compresses the input data using AES Miyaguchi-Preenel mode.
 // This function returns both the compressed data and the padding bytes.
-// The input data must be hexdecimal encoded.
+// The input data must be hexadecimal encoded.
 func compress(r io.Reader) (compressed, pad []byte, _ error) {
 	d := newHexVerifiedDecoder(r, blockSize)
 	src := make([]byte, blockSize)
@@ -79,8 +79,8 @@ func compress(r io.Reader) (compressed, pad []byte, _ error) {
 }
 
 // Compress compresses the input data using AES Miyaguchi-Preenel mode.
-// The output is encoded in hexdecimal.
-// The input data must be hexdecimal encoded.
+// The output is encoded in hexadecimal.
+// The input data must be hexadecimal encoded.
 // If the length of the input text is greater than 1<<40 - 1 in bit, it returns ErrLargePlainText.
 func Compress(r io.Reader) ([]byte, error) {
 	c, _, err := compress(r)
@@ -93,9 +93,9 @@ func Compress(r io.Reader) ([]byte, error) {
 }
 
 // Padding calculate the padding bytes.
-// The output is encoded in hexdecimal.
+// The output is encoded in hexadecimal.
 // This function does not modify the input, just returns the padding bytes.
-// The input data must be hexdecimal encoded.
+// The input data must be hexadecimal encoded.
 // If the length of the input text is greater than 1<<40 - 1 in bit, it returns ErrLargePlainText.
 func Padding(r io.Reader) ([]byte, error) {
 	_, pad, err := compress(r)
