@@ -19,20 +19,16 @@ const (
 // ErrLargePlainText is returned when the length of the input text is greater than 1<<40 - 1.
 var ErrLargePlainText = errors.New("shecomp: the length of the input text is too large")
 
-type hexVerifiedDecoder struct {
-	r         io.Reader
-	blockSize int
+// ErrNeedPadding is returned when the input text is not multiple of block size.
+var ErrNeedPadding = errors.New("shecomp: the input text must be multiple of block size")
+
+type blockReader interface {
+	block(dst []byte) error
 }
 
-func newHexVerifiedDecoder(r io.Reader, blockSize int) *hexVerifiedDecoder {
-	return &hexVerifiedDecoder{r, blockSize}
-}
-
-// *hexVerifiedDecoder.Read is different from hex.Decoder.Read
-// at the point of returning a decode error immediately. ex)ErrLength.
-func (d *hexVerifiedDecoder) read(dst []byte) (int, error) {
+func hexDecode(dst []byte, src io.Reader) (int, error) {
 	h := make([]byte, hex.EncodedLen(len(dst)))
-	n, err := d.r.Read(h)
+	n, err := src.Read(h)
 	if err != nil {
 		return 0, err
 	}
@@ -40,42 +36,86 @@ func (d *hexVerifiedDecoder) read(dst []byte) (int, error) {
 	return hex.Decode(dst, h)
 }
 
+type noPaddingReader struct {
+	r io.Reader
+}
+
+type paddingReader struct {
+	r         io.Reader
+	b         []byte
+	readBytes uint64
+	pad       []byte
+	eof       bool
+}
+
+func (r *noPaddingReader) block(dst []byte) error {
+	n, err := hexDecode(dst, r.r)
+	if err != nil {
+		return err
+	}
+	if n < blockSize {
+		return ErrNeedPadding
+	}
+	return nil
+}
+
+func newPaddingReader(r io.Reader) *paddingReader {
+	return &paddingReader{
+		r: r,
+		b: make([]byte, blockSize),
+	}
+}
+
+func (r *paddingReader) block(dst []byte) error {
+	if r.eof {
+		return io.EOF
+	}
+	// read into r.b and copy from r.b to dst
+	n, err := hexDecode(r.b, r.r)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	r.readBytes += uint64(n)
+
+	if r.readBytes*8 > maxBitLength {
+		return ErrLargePlainText
+	}
+
+	if n == blockSize {
+		copy(dst, r.b)
+		return nil
+	}
+
+	// calculate padding bytes
+	r.eof = true
+	r.b = r.b[:n]
+	r.pad = padding(r.b, r.readBytes)
+
+	copy(dst, append(r.b, r.pad...))
+	return nil
+}
+
 // compress compresses the input data using AES Miyaguchi-Preenel mode.
 // This function returns both the compressed data and the padding bytes.
 // The input data must be hexadecimal encoded.
-func compress(r io.Reader) (compressed, pad []byte, _ error) {
-	d := newHexVerifiedDecoder(r, blockSize)
+func compress(br blockReader) ([]byte, error) {
 	src := make([]byte, blockSize)
 	out := make([]byte, blockSize)
 
-	var srcByteLen uint64
 	for {
-		n, err := d.read(src)
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				return nil, nil, fmt.Errorf("shecomp: failed to read input stream: %w", err)
+		if err := br.block(src); err != nil {
+			if errors.Is(err, io.EOF) {
+				return out, nil
 			}
+			return nil, fmt.Errorf("could not read from reader: %w", err)
 		}
-		srcByteLen += uint64(n)
-		src = src[:n]
-		if n < blockSize || errors.Is(err, io.EOF) {
-			break
-		}
+
 		o, err := encrypt(src, out)
 		if err != nil {
-			return nil, nil, fmt.Errorf("shecomp: failed to encrypt: %w", err)
+			return nil, fmt.Errorf("failed to encrypt: %w", err)
 		}
 		out = o
 	}
-	if srcByteLen*8 > maxBitLength {
-		return nil, nil, ErrLargePlainText
-	}
-	pad = padding(src, srcByteLen)
-	out, err := encrypt(append(src, pad...), out)
-	if err != nil {
-		return nil, nil, fmt.Errorf("shecomp: failed to encrypt the last block with padding: %w", err)
-	}
-	return out, pad, nil
 }
 
 // Compress compresses the input data using AES Miyaguchi-Preenel mode.
@@ -83,7 +123,8 @@ func compress(r io.Reader) (compressed, pad []byte, _ error) {
 // The input data must be hexadecimal encoded.
 // If the length of the input text is greater than 1<<40 - 1 in bit, it returns ErrLargePlainText.
 func Compress(r io.Reader) ([]byte, error) {
-	c, _, err := compress(r)
+	br := newPaddingReader(r)
+	c, err := compress(br)
 	if err != nil {
 		return nil, err
 	}
@@ -98,12 +139,32 @@ func Compress(r io.Reader) ([]byte, error) {
 // The input data must be hexadecimal encoded.
 // If the length of the input text is greater than 1<<40 - 1 in bit, it returns ErrLargePlainText.
 func Padding(r io.Reader) ([]byte, error) {
-	_, pad, err := compress(r)
+	br := newPaddingReader(r)
+	out := make([]byte, blockSize)
+	for {
+		if err := br.block(out); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("error during padding: %w", err)
+		}
+	}
+	h := make([]byte, hex.EncodedLen(len(br.pad)))
+	hex.Encode(h, br.pad)
+	return h, nil
+}
+
+// CompressWithoutPadding compresses the input data using AES Miyaguchi-Preenel mode.
+// CompressWithoutPadding is almost same as Compress function, but does not add padding to the end of the input data.
+// The input data must have appropriate padding according to the SHE protocol.
+func CompressWithoutPadding(r io.Reader) ([]byte, error) {
+	br := noPaddingReader{r}
+	c, err := compress(&br)
 	if err != nil {
 		return nil, err
 	}
-	h := make([]byte, hex.EncodedLen(len(pad)))
-	hex.Encode(h, pad)
+	h := make([]byte, hex.EncodedLen(len(c)))
+	hex.Encode(h, c)
 	return h, nil
 }
 

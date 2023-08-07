@@ -50,9 +50,14 @@ func run(c *cli.Context) error {
 	}
 
 	// switch the output mode
+	if c.Bool("padding") && c.Bool("nopad") {
+		return errors.New("both the padding and nopad flags are specified")
+	}
 	var fn func(r io.Reader) ([]byte, error)
 	if c.Bool("padding") {
 		fn = shecomp.Padding
+	} else if c.Bool("nopad") {
+		fn = shecomp.CompressWithoutPadding
 	} else {
 		fn = shecomp.Compress
 	}
@@ -83,6 +88,10 @@ func main() {
 				Name:    "padding",
 				Aliases: []string{"p"},
 				Usage:   "switch output mode to return only padding",
+			},
+			&cli.BoolFlag{
+				Name:  "nopad",
+				Usage: "compress the input data without padding",
 			},
 		},
 		Action: run,
