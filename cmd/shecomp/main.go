@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	version = "v0.0.1"
+	version = "v0.0.2"
 )
 
 func compress(w io.Writer, r io.Reader, fn func(r io.Reader) ([]byte, error)) error {
