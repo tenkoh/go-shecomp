@@ -93,3 +93,40 @@ func TestCompress(t *testing.T) {
 		})
 	}
 }
+
+func TestCompressWithoutPadding(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    []byte
+		wantErr bool
+	}{
+		{
+			"example described in SHE specification 4.13.2.10",
+			"000102030405060708090a0b0c0d0e0f010153484500800000000000000000b0",
+			[]byte("118a46447a770d87828a69c222e2d17e"),
+			false,
+		},
+		{
+			"the input is not multiple of block size",
+			"0000000000000000000000000000000",
+			nil,
+			true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := shecomp.CompressWithoutPadding(strings.NewReader(tt.input))
+			if err != nil {
+				if !tt.wantErr {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !reflect.DeepEqual(tt.want, got) {
+				t.Errorf("Compress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
