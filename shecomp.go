@@ -17,10 +17,10 @@ const (
 )
 
 // ErrLargePlainText is returned when the length of the input text is greater than 1<<40 - 1.
-var ErrLargePlainText = errors.New("shecomp: the length of the input text is too large")
+var ErrLargePlainText = errors.New("the length of the input text is too large. it must be less than 1<<40 - 1 in bit after decoding")
 
 // ErrNeedPadding is returned when the input text is not multiple of block size.
-var ErrNeedPadding = errors.New("shecomp: the input text must be multiple of block size")
+var ErrNeedPadding = errors.New("the input text must be multiple of block size")
 
 type blockReader interface {
 	block(dst []byte) error
@@ -146,7 +146,7 @@ func Padding(r io.Reader) ([]byte, error) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("error during padding: %w", err)
+			return nil, fmt.Errorf("failed to add padding: %w", err)
 		}
 	}
 	h := make([]byte, hex.EncodedLen(len(br.pad)))
@@ -170,11 +170,11 @@ func CompressWithoutPadding(r io.Reader) ([]byte, error) {
 
 func encrypt(src, previous []byte) ([]byte, error) {
 	if len(src) != blockSize || len(previous) != blockSize {
-		return nil, fmt.Errorf("shecomp: failed to encrypt. the length of each input must be same as blockSize=%d, but len(src) = %d, len(previous) = %d", blockSize, len(src), len(previous))
+		return nil, fmt.Errorf("failed to encrypt. the length of each input must be same as blockSize=%d, but len(src) = %d, len(previous) = %d", blockSize, len(src), len(previous))
 	}
 	cipher, err := aes.NewCipher(previous)
 	if err != nil {
-		return nil, fmt.Errorf("shecomp: failed to create cipher: %w", err)
+		return nil, fmt.Errorf("failed to initialize aes cipher: %w", err)
 	}
 	encrypted := make([]byte, blockSize)
 	cipher.Encrypt(encrypted, src)
@@ -185,7 +185,7 @@ func encrypt(src, previous []byte) ([]byte, error) {
 
 func xor(a, b []byte) ([]byte, error) {
 	if len(a) != len(b) {
-		return nil, fmt.Errorf("shecomp: failed to xor: len(a) = %d, len(b) = %d", len(a), len(b))
+		return nil, fmt.Errorf("failed to xor: len(a) = %d, len(b) = %d", len(a), len(b))
 	}
 	r := make([]byte, len(a))
 	for i := 0; i < len(a); i++ {
